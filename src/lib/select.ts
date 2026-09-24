@@ -2,8 +2,9 @@ import type { ContentType, Post, SortDir, SortKey } from "./types";
 
 export function contentTypes(post: Post): Set<ContentType> {
   const types = new Set<ContentType>();
-  if (post.media.length === 0) types.add("text");
-  for (const m of post.media) types.add(m.kind === "image" ? "image" : "video");
+  const media = [...post.media, ...(post.quoted?.media ?? [])];
+  if (media.length === 0) types.add("text");
+  for (const m of media) types.add(m.kind === "image" ? "image" : "video");
   return types;
 }
 

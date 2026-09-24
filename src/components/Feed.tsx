@@ -90,11 +90,11 @@ export function Feed({ posts, sort, view, selectionKey, onOpen }: FeedProps) {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         if (!restored.current) return;
-        const top = window.scrollY - virtualizer.options.scrollMargin;
-        if (top <= 0) return saveScroll(null);
-        const item = virtualizer.getVirtualItems().find((v) => v.end > top);
+        const y = window.scrollY;
+        if (y <= virtualizer.options.scrollMargin) return saveScroll(null);
+        const item = virtualizer.getVirtualItems().find((v) => v.end > y);
         const post = item ? posts[item.index * cols] : undefined;
-        if (item && post) saveScroll({ id: post.id, offset: Math.round(top - item.start), view });
+        if (item && post) saveScroll({ id: post.id, offset: Math.round(y - item.start), view });
       });
     };
     window.addEventListener("scroll", onScroll, { passive: true });

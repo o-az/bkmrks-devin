@@ -1,8 +1,8 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { Library, type LibraryState } from "./lib/library";
 import { forgetCredentials, loadCredentials, saveCredentials } from "./lib/credentials";
-import { clearPrefs, loadPrefs, savePrefs, type Prefs } from "./lib/prefs";
+import { clearPrefs, loadPrefs, savePrefs, saveScroll, type Prefs } from "./lib/prefs";
 import { countTypes, selectPosts } from "./lib/select";
 import { formatAgo } from "./lib/format";
 import type { Credentials } from "./lib/types";
@@ -85,11 +85,26 @@ export function App() {
   const counts = useMemo(() => countTypes(state.posts), [state.posts]);
   const selectionKey = `${prefs.types.join()}|${prefs.sort}|${prefs.dir}|${query}`;
 
-  const connect = (creds: Credentials, remember: boolean) => {
+  const lastSelection = useRef(selectionKey);
+  useEffect(() => {
+    if (lastSelection.current === selectionKey) return;
+    lastSelection.current = selectionKey;
+    saveScroll(null);
+  }, [selectionKey]);
+
+  useEffect(() => {
+    if (openIndex !== null && openIndex >= visible.length) setOpenIndex(null);
+  }, [openIndex, visible.length]);
+
+  const connect = async (creds: Credentials, remember: boolean) => {
+    // A different auth_token is a different account: its library must not mix with the old one.
+    if (session && session.creds.authToken !== creds.authToken) {
+      await library.clear();
+      saveScroll(null);
+    }
     saveCredentials(creds, remember);
     setSession({ creds, remember });
     setEditing(false);
-    if (session) void library.sync(creds);
   };
 
   const signOut = async () => {
@@ -184,7 +199,7 @@ export function App() {
           </div>
         ) : null}
       </main>
-      {openIndex !== null ? <Viewer posts={visible} index={openIndex} sort={prefs.sort} onIndex={setOpenIndex} /> : null}
+      {openIndex !== null && visible[openIndex] ? <Viewer posts={visible} index={openIndex} sort={prefs.sort} onIndex={setOpenIndex} /> : null}
       <UpdatePrompt />
     </>
   );
