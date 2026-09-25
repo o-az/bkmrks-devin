@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.0",
     "@tanstack/react-virtual": "3.14.13",
     "react": "19.3.0",
     "react-dom": "19.3.0"
@@ -28,5 +29,8 @@
   },
   "engines": {
     "node": ">=22.12"
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": ["onnxruntime-node", "protobufjs"]
   }
 }

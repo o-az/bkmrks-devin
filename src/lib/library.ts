@@ -37,7 +37,13 @@ class RateLimited extends Error {
 
 export type PageFetcher = (creds: Credentials, cursor: string | null) => Promise<PageResult>;
 
+const useMock = import.meta.env.DEV && typeof location !== "undefined" && new URLSearchParams(location.search).has("mock");
+
 export const fetchPage: PageFetcher = async (creds, cursor) => {
+  if (useMock) {
+    const { mockFetchPage } = await import("./mock");
+    return mockFetchPage(creds, cursor);
+  }
   let res: Response;
   try {
     res = await fetch("/api/bookmarks", {
