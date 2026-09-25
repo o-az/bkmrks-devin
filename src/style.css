@@ -325,3 +325,9 @@ a.metric:hover { color: var(--accent); text-decoration: none; }
   .organize { padding: 0; }
   .organize-card { max-width: none; height: 100%; border-radius: 0; border: 0; }
 }
+.progress-fill.indeterminate { width: 30% !important; animation: indeterminate 1.4s ease-in-out infinite; }
+@keyframes indeterminate {
+  0% { margin-left: 0; }
+  50% { margin-left: 70%; }
+  100% { margin-left: 0; }
+}

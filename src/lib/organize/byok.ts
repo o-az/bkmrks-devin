@@ -21,6 +21,25 @@ interface ChatMessage {
   content: string;
 }
 
+/** Tolerant JSON extraction: strips ``` fences, then falls back to the outermost {…} span. */
+export function parseJson(content: string): unknown {
+  const stripped = content.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "");
+  try {
+    return JSON.parse(stripped);
+  } catch {
+    const start = stripped.indexOf("{");
+    const end = stripped.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(stripped.slice(start, end + 1));
+      } catch {
+        // fall through
+      }
+    }
+    throw new Error("Provider returned non-JSON");
+  }
+}
+
 export class ByokClassifier implements Classifier {
   constructor(
     private readonly settings: OrganizeSettings,
@@ -33,36 +52,65 @@ export class ByokClassifier implements Classifier {
     return c;
   }
 
-  private async chat(messages: ChatMessage[], signal: AbortSignal): Promise<unknown> {
+  /** Some providers reject response_format; once we see that, stop sending it. */
+  private noResponseFormat = false;
+
+  private async request(messages: ChatMessage[], maxTokens: number, signal: AbortSignal): Promise<Response> {
     const { baseUrl, model, apiKey } = this.cfg;
-    const res = await this.fetchFn(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages, temperature: 0, response_format: { type: "json_object" } }),
-      signal,
-    });
-    if (res.status === 401 || res.status === 403) {
-      const err = new Error(`Provider rejected the API key (${res.status}).`);
-      err.name = "Fatal";
-      throw err;
+    try {
+      return await this.fetchFn(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0,
+          max_tokens: maxTokens,
+          ...(this.noResponseFormat ? {} : { response_format: { type: "json_object" } }),
+        }),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(90_000)]),
+      });
+    } catch (err) {
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+      throw err instanceof DOMException && err.name === "TimeoutError"
+        ? new Error("Provider timed out")
+        : new Error("Provider unreachable");
     }
-    if (res.status === 429 || res.status >= 500) throw new Error(`Provider error ${res.status}.`);
-    if (!res.ok) throw new Error(`Request failed (${res.status}).`);
+  }
+
+  private async chat(messages: ChatMessage[], maxTokens: number, signal: AbortSignal): Promise<unknown> {
+    let res = await this.request(messages, maxTokens, signal);
+    // Provider doesn't accept response_format → retry once without it and remember.
+    if (!res.ok && res.status !== 401 && res.status !== 403 && res.status !== 429 && res.status < 500 && !this.noResponseFormat) {
+      this.noResponseFormat = true;
+      res = await this.request(messages, maxTokens, signal);
+    }
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 200);
+      if (res.status === 401 || res.status === 403) {
+        const err = new Error(`Provider rejected the API key (${res.status})${detail ? `: ${detail}` : ""}`);
+        err.name = "Fatal";
+        throw err;
+      }
+      if (res.status === 429 || res.status >= 500) throw new Error(`Provider error ${res.status}${detail ? `: ${detail}` : ""}`);
+      throw new Error(`Request failed (${res.status})${detail ? `: ${detail}` : ""}`);
+    }
     const body = await res.json();
     const content = body?.choices?.[0]?.message?.content;
     if (typeof content !== "string") throw new Error("Empty response from provider.");
-    return JSON.parse(content);
+    return parseJson(content);
   }
 
-  private async chatRetry(messages: ChatMessage[], signal: AbortSignal): Promise<unknown> {
+  private async chatRetry(messages: ChatMessage[], maxTokens: number, signal: AbortSignal, onNote?: (note: string) => void): Promise<unknown> {
     let last: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
       try {
-        return await this.chat(messages, signal);
+        return await this.chat(messages, maxTokens, signal);
       } catch (err) {
         if ((err as Error).name === "Fatal" || (err as Error).name === "AbortError") throw err;
         last = err;
+        if (attempt < 2) onNote?.(`${(err as Error).message} — retrying (${attempt + 2}/3)…`);
         await sleep(500 * 2 ** attempt);
       }
     }
@@ -73,7 +121,7 @@ export class ByokClassifier implements Classifier {
     void this.cfg;
     onProgress({ phase: "discovering", done: 0, total: 1 });
     const rand = rng(42);
-    const sample = [...posts].sort(() => rand() - 0.5).slice(0, 300);
+    const sample = [...posts].sort(() => rand() - 0.5).slice(0, 120);
     const discovered = (await this.chatRetry(
       [
         {
@@ -86,11 +134,13 @@ export class ByokClassifier implements Classifier {
           role: "user",
           content:
             `Here are ${sample.length} sampled posts:\n\n` +
-            sample.map((p, i) => `${i + 1}. ${postText(p)}`).join("\n") +
+            sample.map((p, i) => `${i + 1}. ${postText(p).slice(0, 280)}`).join("\n") +
             (seeds.length ? `\n\nThese categories must be included verbatim: ${seeds.join(", ")}` : ""),
         },
       ],
+      1500,
       signal,
+      (note) => onProgress({ phase: "discovering", done: 0, total: 1, note }),
     )) as { categories?: { name: string; description?: string }[] };
     const names = (discovered.categories ?? []).map((c) => c.name).filter((n): n is string => typeof n === "string" && !!n);
     for (const s of seeds) if (!names.includes(s)) names.push(s);
@@ -137,7 +187,9 @@ export class ByokClassifier implements Classifier {
               },
               { role: "user", content: `Categories:\n${catalog}\n\nPosts:\n` + batch.map((p) => `${p.id}: ${postText(p)}`).join("\n") },
             ],
+            2000,
             signal,
+            (note) => onProgress({ phase: "assigning", done, total: posts.length, note }),
           )) as { assignments?: Record<string, number[]> };
           const map = parsed?.assignments ?? {};
           for (const p of batch) {

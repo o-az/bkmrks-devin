@@ -24,6 +24,8 @@ export interface Progress {
   phase: "preparing" | "embedding" | "discovering" | "assigning";
   done: number;
   total: number;
+  /** Transient detail, e.g. "Provider error 502 — retrying (2/3)…". */
+  note?: string;
 }
 
 export interface Classifier {

@@ -27,6 +27,7 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<(ProposedList & { ci: number })[]>([]);
   const [unsorted, setUnsorted] = useState<string[]>([]);
+  const [elapsed, setElapsed] = useState(0);
   const model = useRef<{ centroids: number[][] } | undefined>(undefined);
   const abort = useRef<AbortController | null>(null);
 
@@ -51,6 +52,13 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
   }, []);
 
   useEffect(() => () => abort.current?.abort(), []);
+
+  useEffect(() => {
+    if (step !== "running") return;
+    setElapsed(0);
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, [step]);
 
   const start = async () => {
     if (provider === "byok" && !apiKey) return setError("Enter an API key or choose Local.");
@@ -196,10 +204,19 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
               <>
                 <p className="muted">{PHASE_LABELS[progress.phase]}</p>
                 <div className="progress">
-                  <div className="progress-fill" style={{ width: `${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%` }} />
+                  <div
+                    className={`progress-fill${progress.phase === "discovering" && progress.done === 0 ? " indeterminate" : ""}`}
+                    style={{ width: `${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%` }}
+                  />
                 </div>
                 <p className="muted small">
                   {progress.done.toLocaleString()} / {progress.total.toLocaleString()}
+                </p>
+                <p className="muted small">
+                  {progress.note ??
+                    (progress.phase === "discovering" && progress.done === 0
+                      ? `Waiting for the model (one request, usually 10–60 s)… ${elapsed}s`
+                      : "")}
                 </p>
                 <div className="actions-row">
                   <button className="ghost" onClick={() => abort.current?.abort()}>

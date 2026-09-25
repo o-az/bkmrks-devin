@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ByokClassifier } from "../src/lib/organize/byok";
-import type { OrganizeSettings } from "../src/lib/organize/types";
+import { ByokClassifier, parseJson } from "../src/lib/organize/byok";
+import type { OrganizeSettings, Progress } from "../src/lib/organize/types";
 import type { List } from "../src/lib/lists";
 import { post } from "./fixtures";
 
@@ -12,12 +12,18 @@ const settings = (over: Partial<OrganizeSettings["byok"]> = {}): OrganizeSetting
 });
 
 const ok = (content: unknown) =>
-  new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200 });
+  new Response(JSON.stringify({ choices: [{ message: { content: typeof content === "string" ? content : JSON.stringify(content) } }] }), {
+    status: 200,
+  });
 
-function fetchMock(handlers: ((req: unknown, call: number) => Response)[]) {
+function fetchMock(handlers: ((init: RequestInit | undefined, call: number) => Response | Promise<Response>)[]) {
   let call = 0;
-  const fn = vi.fn(async () => handlers[Math.min(call++, handlers.length - 1)]!(undefined, call) as Response);
-  return Object.assign(fn, { calls: () => call }) as unknown as typeof fetch & { calls: () => number };
+  const bodies: unknown[] = [];
+  const fn = vi.fn(async (_url: string, init?: RequestInit) => {
+    bodies.push(init?.body ? JSON.parse(String(init.body)) : undefined);
+    return handlers[Math.min(call++, handlers.length - 1)]!(init, call) as Response;
+  });
+  return Object.assign(fn, { calls: () => call, bodies }) as unknown as typeof fetch & { calls: () => number; bodies: unknown[] };
 }
 
 beforeEach(() => {
@@ -40,13 +46,62 @@ describe("ByokClassifier", () => {
   });
 
   it("honors seeds verbatim", async () => {
-    const f = fetchMock([
-      () => ok({ categories: [{ name: "Other" }] }),
-      () => ok({ assignments: {} }),
-    ]);
+    const f = fetchMock([() => ok({ categories: [{ name: "Other" }] }), () => ok({ assignments: {} })]);
     const c = new ByokClassifier(settings(), f);
     const proposal = await c.organize([post()], ["Must Keep"], () => {}, new AbortController().signal);
     expect(proposal.lists.map((l) => l.name)).toContain("Must Keep");
+  });
+
+  it("retries once without response_format on a 400, then remembers", async () => {
+    const posts = [post()];
+    const f = fetchMock([
+      () => new Response(JSON.stringify({ error: { message: "model does not support response_format" } }), { status: 400 }),
+      () => ok({ categories: [{ name: "Tech" }] }),
+      () => ok({ assignments: { [posts[0]!.id]: [0] } }),
+    ]);
+    const c = new ByokClassifier(settings(), f);
+    const proposal = await c.organize(posts, [], () => {}, new AbortController().signal);
+    expect(proposal.lists[0]!.postIds).toEqual([posts[0]!.id]);
+    expect((f.bodies[0] as { response_format?: unknown }).response_format).toEqual({ type: "json_object" });
+    expect((f.bodies[1] as { response_format?: unknown }).response_format).toBeUndefined();
+    expect((f.bodies[2] as { response_format?: unknown }).response_format).toBeUndefined(); // remembered
+  });
+
+  it("parses fenced ```json content", async () => {
+    expect(parseJson('```json\n{"a": 1}\n```')).toEqual({ a: 1 });
+    expect(parseJson('```\n{"a": 1}\n```')).toEqual({ a: 1 });
+  });
+
+  it("parses JSON embedded in prose", async () => {
+    expect(parseJson('Sure! Here you go: {"categories": [{"name": "Tech"}]} — done.')).toEqual({ categories: [{ name: "Tech" }] });
+    expect(() => parseJson("no json here")).toThrow("non-JSON");
+  });
+
+  it("includes the provider's error body in thrown errors", async () => {
+    const f = fetchMock([() => new Response(JSON.stringify({ error: { message: "model does not support response_format" } }), { status: 400 })]);
+    const c = new ByokClassifier(settings({ baseUrl: "https://api.test/v1" }), f);
+    await expect(c.organize([post()], [], () => {}, new AbortController().signal)).rejects.toThrow(/400[\s\S]*response_format/);
+  });
+
+  it("reports a retry note through onProgress", async () => {
+    vi.useFakeTimers();
+    const notes: string[] = [];
+    const posts = [post()];
+    let n = 0;
+    const f = vi.fn(async () => (n++ === 0 ? new Response("bad gateway", { status: 502 }) : ok({ categories: [{ name: "T" }] }))) as unknown as typeof fetch;
+    const c = new ByokClassifier(settings(), f);
+    const run = c.assign(posts, [{ id: "l", name: "T", createdAt: 0 }], new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await run;
+    // organize() path for the note plumbing:
+    n = 0;
+    const run2 = c
+      .organize(posts, [], (p: Progress) => p.note && notes.push(p.note), new AbortController().signal)
+      .catch(() => null);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await run2;
+    expect(notes.some((t) => /502|retrying \(2\/3\)/.test(t))).toBe(true);
+    vi.useRealTimers();
   });
 
   it("retries malformed JSON then marks the batch unsorted", async () => {
