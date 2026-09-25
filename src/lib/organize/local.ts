@@ -5,28 +5,37 @@ import { chooseK, kmeans, nameClusters } from "./cluster";
 import { postText } from "./text";
 import type { Classifier, Progress, Proposal } from "./types";
 
-export type Embedder = (texts: string[], onProgress: (done: number, total: number) => void) => Promise<Float32Array[]>;
+export type Embedder = (texts: string[], onProgress: (done: number, total: number) => void, signal: AbortSignal) => Promise<Float32Array[]>;
 
 const MIN_SIMILARITY = 0.2;
 const SECOND_LIST_DELTA = 0.03;
 
 /** Embeds via Transformers.js in a Web Worker; the model is cached by the browser Cache API. */
 export function workerEmbedder(): Embedder {
-  return (texts, onProgress) =>
+  return (texts, onProgress, signal) =>
     new Promise((resolve, reject) => {
       const worker = new Worker(new URL("./local.worker.ts", import.meta.url), { type: "module" });
+      const onAbort = () => {
+        worker.terminate();
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      const settle = () => signal.removeEventListener("abort", onAbort);
+      signal.addEventListener("abort", onAbort);
       worker.onmessage = (e: MessageEvent) => {
         const m = e.data;
         if (m.type === "progress") onProgress(m.done, m.total);
         else if (m.type === "done") {
+          settle();
           worker.terminate();
           resolve(m.vectors.map((v: number[]) => Float32Array.from(v)));
         } else if (m.type === "error") {
+          settle();
           worker.terminate();
           reject(new Error(m.message));
         }
       };
       worker.onerror = (e) => {
+        settle();
         worker.terminate();
         reject(new Error(e.message || "Embedding worker failed."));
       };
@@ -98,6 +107,7 @@ export class LocalClassifier implements Classifier {
       const fresh = await this.embed(
         missing.map((i) => texts[i]!),
         (done) => onProgress({ phase: "embedding", done, total: missing.length }),
+        signal,
       );
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
       await putVectors(missing.map((i, j) => ({ postId: posts[i]!.id, vector: [...fresh[j]!] })));
@@ -105,7 +115,7 @@ export class LocalClassifier implements Classifier {
     }
 
     onProgress({ phase: "discovering", done: 0, total: 1 });
-    const initial = seeds.length ? await this.embed(seeds, () => {}) : undefined;
+    const initial = seeds.length ? await this.embed(seeds, () => {}, signal) : undefined;
     const k = Math.max(seeds.length, chooseK(posts.length));
     const { centroids, labels } = kmeans(vectors, k, { initial });
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -141,9 +151,7 @@ export class LocalClassifier implements Classifier {
     if (!pairs.length) return out;
     const stored = new Map((await loadVectors()).map((v) => [v.postId, v.vector]));
     const missing = posts.filter((p) => !stored.has(p.id));
-    const fresh = missing.length
-      ? await this.embed(missing.map(postText), () => {})
-      : [];
+    const fresh = missing.length ? await this.embed(missing.map(postText), () => {}, signal) : [];
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     if (fresh.length) await putVectors(missing.map((p, i) => ({ postId: p.id, vector: [...fresh[i]!] })));
     const vectors = new Map(missing.map((p, i) => [p.id, fresh[i]!]));

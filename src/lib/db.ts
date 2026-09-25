@@ -51,8 +51,8 @@ export async function putPosts(posts: Post[], meta?: Record<string, unknown>, re
   const db = await open();
   const tx = db.transaction([POSTS, META], "readwrite");
   const store = tx.objectStore(POSTS);
-  for (const p of posts) store.put(p);
   for (const id of remove) store.delete(id);
+  for (const p of posts) store.put(p);
   if (meta) for (const [k, v] of Object.entries(meta)) tx.objectStore(META).put(v, k);
   return done(tx);
 }
@@ -66,8 +66,8 @@ export async function putLists(lists: List[], remove: string[] = []): Promise<vo
   const db = await open();
   const tx = db.transaction(LISTS, "readwrite");
   const store = tx.objectStore(LISTS);
-  for (const l of lists) store.put(l);
   for (const id of remove) store.delete(id);
+  for (const l of lists) store.put(l);
   return done(tx);
 }
 
@@ -80,8 +80,8 @@ export async function putAssignments(assignments: Assignment[], remove: string[]
   const db = await open();
   const tx = db.transaction(ASSIGNMENTS, "readwrite");
   const store = tx.objectStore(ASSIGNMENTS);
-  for (const a of assignments) store.put(a);
   for (const id of remove) store.delete(id);
+  for (const a of assignments) store.put(a);
   return done(tx);
 }
 
@@ -94,8 +94,8 @@ export async function putVectors(vectors: StoredVector[], remove: string[] = [])
   const db = await open();
   const tx = db.transaction(VECTORS, "readwrite");
   const store = tx.objectStore(VECTORS);
-  for (const v of vectors) store.put(v);
   for (const id of remove) store.delete(id);
+  for (const v of vectors) store.put(v);
   return done(tx);
 }
 

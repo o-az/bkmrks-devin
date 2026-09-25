@@ -8,12 +8,14 @@ import { post } from "./fixtures";
 
 // Fake embedder: each topic word maps to a different axis.
 const AXES: Record<string, number> = { alpha: 0, beta: 1, gamma: 2, delta: 3 };
-const fakeEmbed: Embedder = async (texts) =>
-  texts.map((t) => {
+const fakeEmbed: Embedder = async (texts, _onProgress, signal) => {
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+  return texts.map((t) => {
     const v = new Float32Array(4).fill(0);
     for (const [word, axis] of Object.entries(AXES)) if (t.toLowerCase().includes(word)) v[axis] = 1;
     return v;
   });
+};
 
 const mkposts = (words: string[], perTopic: number): Post[] =>
   words.flatMap((w) => Array.from({ length: perTopic }, () => post({ text: `${w} ${w} interesting ${w}` })));
@@ -56,5 +58,14 @@ describe("LocalClassifier", () => {
     const out = await c.assign([near, far], lists, new AbortController().signal);
     expect(out.get("near")).toEqual(["Alpha"]);
     expect(out.get("far")).toEqual([]);
+  });
+
+  it("rejects with AbortError when the signal is already aborted", async () => {
+    const posts = mkposts(["alpha", "beta"], 3);
+    const c = new LocalClassifier(fakeEmbed);
+    const ctrl = new AbortController();
+    ctrl.abort();
+    await expect(c.organizeWithModel(posts, [], () => {}, ctrl.signal)).rejects.toMatchObject({ name: "AbortError" });
+    await expect(c.organize(posts, [], () => {}, ctrl.signal)).rejects.toMatchObject({ name: "AbortError" });
   });
 });

@@ -70,6 +70,7 @@ export class ByokClassifier implements Classifier {
   }
 
   async organize(posts: Post[], seeds: string[], onProgress: (p: Progress) => void, signal: AbortSignal): Promise<Proposal> {
+    void this.cfg;
     onProgress({ phase: "discovering", done: 0, total: 1 });
     const rand = rng(42);
     const sample = [...posts].sort(() => rand() - 0.5).slice(0, 300);
@@ -108,6 +109,7 @@ export class ByokClassifier implements Classifier {
   }
 
   async assign(posts: Post[], lists: List[], signal: AbortSignal): Promise<Map<string, string[]>> {
+    void this.cfg;
     const names = lists.map((l) => l.name);
     if (!names.length || !posts.length) return new Map();
     return this.assignBatches(posts, names, () => {}, signal);

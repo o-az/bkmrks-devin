@@ -37,25 +37,56 @@ describe("Lists", () => {
     expect(lists.state.assignments.has("p1")).toBe(false);
   });
 
-  it("applyProposal keeps manual assignments whose list name survives", async () => {
+  it("manual lists survive applyProposal with id and assignments intact", async () => {
     const lists = await fresh();
-    const keep = await lists.createList("Keep");
-    const drop = await lists.createList("Drop");
+    const fav = await lists.createList("Favorites");
+    await lists.setPostLists("p1", [fav.id]);
+    const proposal: Proposal = { lists: [{ name: "Tech", postIds: ["a1", "p1"] }], unsorted: [] };
+    await lists.applyProposal(proposal);
+    expect(lists.state.lists.find((l) => l.id === fav.id)?.name).toBe("Favorites");
+    const a = lists.state.assignments.get("p1")!;
+    expect(a.listIds).toContain(fav.id);
+    expect(a.source).toBe("manual"); // merged with proposal membership
+    const tech = lists.state.lists.find((l) => l.name === "Tech")!;
+    expect(a.listIds).toContain(tech.id);
+
+    // Second reorganize still keeps it.
+    await lists.applyProposal({ lists: [{ name: "Other", postIds: ["a2"] }], unsorted: [] });
+    expect(lists.state.lists.find((l) => l.id === fav.id)?.name).toBe("Favorites");
+    expect(lists.state.assignments.get("p1")!.listIds).toEqual([fav.id]);
+  });
+
+  it("applyProposal keeps manual assignments to auto lists by name, drops the rest", async () => {
+    const lists = await fresh();
+    await lists.applyProposal({ lists: [{ name: "Keep", postIds: [] }, { name: "Drop", postIds: [] }], unsorted: [] });
+    const keep = lists.state.lists.find((l) => l.name === "Keep")!;
+    const drop = lists.state.lists.find((l) => l.name === "Drop")!;
     await lists.setPostLists("p1", [keep.id]);
     await lists.setPostLists("p2", [drop.id]);
     await lists.setPostLists("p3", [keep.id, drop.id]);
 
-    const proposal: Proposal = { lists: [{ name: "Keep", postIds: ["a1", "a2"] }, { name: "New", postIds: ["a2"] }], unsorted: ["u1"] };
-    await lists.applyProposal(proposal);
+    await lists.applyProposal({ lists: [{ name: "Keep", postIds: ["a1", "a2"] }, { name: "New", postIds: ["a2"] }], unsorted: ["u1"] });
     expect(lists.state.lists.map((l) => l.name).sort()).toEqual(["Keep", "New"]);
     const newKeep = lists.state.lists.find((l) => l.name === "Keep")!;
     expect(lists.state.assignments.get("p1")).toMatchObject({ listIds: [newKeep.id], source: "manual" });
-    expect(lists.state.assignments.has("p2")).toBe(false); // its list didn't survive
+    expect(lists.state.assignments.has("p2")).toBe(false);
     expect(lists.state.assignments.get("p3")).toMatchObject({ listIds: [newKeep.id], source: "manual" });
     expect(lists.state.assignments.get("a2")!.listIds).toHaveLength(2);
   });
 
-  it("export → import round-trips lists and assignments", async () => {
+  it("survives a reload after applyProposal with overlapping keys", async () => {
+    const lists = await fresh();
+    await lists.applyProposal({ lists: [{ name: "Tech", postIds: ["p1", "p2"] }], unsorted: [] });
+    await lists.applyProposal({ lists: [{ name: "Tech v2", postIds: ["p1"] }], unsorted: ["p2"] });
+
+    const reloaded = await fresh();
+    expect(reloaded.state.assignments.get("p1")).toBeDefined();
+    expect(reloaded.state.assignments.get("p1")!.listIds).toHaveLength(1);
+    expect(reloaded.state.assignments.has("p2")).toBe(false);
+    expect(reloaded.state.lists.map((l) => l.name)).toEqual(["Tech v2"]);
+  });
+
+  it("export → import round-trips lists and assignments, surviving overlapping ids", async () => {
     const lists = await fresh();
     const a = await lists.createList("A");
     await lists.setPostLists("p1", [a.id]);
@@ -68,6 +99,21 @@ describe("Lists", () => {
     expect(other.state.lists.map((l) => l.name)).toEqual(["A"]);
     expect(other.state.assignments.get("p1")!.listIds).toEqual([a.id]);
     expect(other.state.lists[0]!.id).toBe(a.id);
+
+    // Import again over itself: same list ids appear in both put and remove sets.
+    await other.importJSON(json);
+    const reloaded = await fresh();
+    expect(reloaded.state.lists.map((l) => l.name)).toEqual(["A"]);
+    expect(reloaded.state.assignments.get("p1")!.listIds).toEqual([a.id]);
+  });
+
+  it("setAutoAssignments skips posts that already have an assignment", async () => {
+    const lists = await fresh();
+    const a = await lists.createList("A");
+    await lists.setPostLists("taken", [a.id]);
+    await lists.setAutoAssignments(new Map([["taken", ["A"]], ["free", ["A"]]]));
+    expect(lists.state.assignments.get("taken")!.source).toBe("manual");
+    expect(lists.state.assignments.get("free")!.source).toBe("auto");
   });
 
   it("rejects malformed imports and clears everything", async () => {

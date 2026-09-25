@@ -114,6 +114,7 @@ export function App() {
   // After a sync, assign posts that have no assignment yet to existing lists.
   useEffect(() => {
     if (state.status.kind !== "idle" || !listsState.ready || !listsState.lists.length || !listsState.settings || organizingRef.current) return;
+    if (listsState.settings.provider === "byok" && !listsState.settings.byok?.apiKey) return;
     const fresh = state.posts.filter((p) => !listsState.assignments.has(p.id));
     if (!fresh.length) return;
     let cancelled = false;

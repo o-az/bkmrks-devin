@@ -6,6 +6,8 @@ export interface List {
   id: string;
   name: string;
   createdAt: number;
+  /** Created by hand; survives re-organizing. */
+  manual?: true;
 }
 
 export interface Assignment {
@@ -69,36 +71,48 @@ export class Lists {
     this.set({ ready: true, lists, assignments: new Map(assignments.map((a) => [a.postId, a])), settings: settings ?? null, model: model ?? null });
   }
 
-  /** Replaces all lists and auto assignments with the proposal; manual assignments survive by list name. */
+  /** Replaces non-manual lists and all auto assignments with the proposal; manual lists and assignments survive. */
   async applyProposal(proposal: Proposal, model?: { centroids: number[][] }, keepManual = true): Promise<void> {
     const now = Date.now();
-    const lists = proposal.lists.map((l) => ({ id: newId(), name: l.name, createdAt: now }));
-    const idByName = new Map(lists.map((l) => [l.name, l.id]));
+    const manualLists = this.state.lists.filter((l) => l.manual);
+    const manualIds = new Set(manualLists.map((l) => l.id));
+    const created = proposal.lists.map((l) => ({ id: newId(), name: l.name, createdAt: now }));
+    const idByName = new Map(created.map((l) => [l.name, l.id]));
+    const lists = [...manualLists, ...created];
 
     const assignments = new Map<string, Assignment>();
     proposal.lists.forEach((l, i) => {
       for (const postId of l.postIds) {
         const a = assignments.get(postId) ?? { postId, listIds: [], source: "auto" as const };
-        a.listIds.push(lists[i]!.id);
+        a.listIds.push(created[i]!.id);
         assignments.set(postId, a);
       }
     });
     if (keepManual) {
       for (const a of this.state.assignments.values()) {
         if (a.source !== "manual") continue;
-        const kept = a.listIds.map((id) => this.state.lists.find((l) => l.id === id)?.name).filter((n): n is string => !!n);
-        const listIds = [...new Set(kept.map((n) => idByName.get(n)).filter((id): id is string => !!id))];
+        const listIds = [
+          ...new Set(
+            a.listIds
+              .map((id) => (manualIds.has(id) ? id : idByName.get(this.state.lists.find((l) => l.id === id)?.name ?? "")))
+              .filter((id): id is string => !!id),
+          ),
+        ];
         if (!listIds.length) continue;
         const existing = assignments.get(a.postId);
-        if (existing) existing.listIds = [...new Set([...existing.listIds, ...listIds])];
-        else assignments.set(a.postId, { postId: a.postId, listIds, source: "manual" });
+        if (existing) {
+          existing.listIds = [...new Set([...existing.listIds, ...listIds])];
+          existing.source = "manual";
+        } else {
+          assignments.set(a.postId, { postId: a.postId, listIds, source: "manual" });
+        }
       }
     }
 
-    const removeLists = this.state.lists.map((l) => l.id);
+    const removeLists = this.state.lists.filter((l) => !l.manual).map((l) => l.id);
     const removeAssignments = [...this.state.assignments.keys()];
-    await Promise.all([putLists(lists, removeLists), putAssignments([...assignments.values()], removeAssignments)]);
-    const next: OrganizeModel | null = model ? { centroids: model.centroids, listIds: lists.map((l) => l.id) } : null;
+    await Promise.all([putLists(created, removeLists), putAssignments([...assignments.values()], removeAssignments)]);
+    const next: OrganizeModel | null = model ? { centroids: model.centroids, listIds: created.map((l) => l.id) } : null;
     await setMeta("organize.model", next);
     this.set({ lists, assignments, model: next });
   }
@@ -122,6 +136,7 @@ export class Lists {
     const assignments = new Map(this.state.assignments);
     const changed: Assignment[] = [];
     for (const [postId, names] of byName) {
+      if (assignments.has(postId)) continue;
       const listIds = [...new Set(names.map((n) => idByName.get(n)).filter((id): id is string => !!id))];
       if (!listIds.length) continue;
       const a: Assignment = { postId, listIds, source: "auto" };
@@ -164,7 +179,7 @@ export class Lists {
   }
 
   async createList(name: string): Promise<List> {
-    const list: List = { id: newId(), name, createdAt: Date.now() };
+    const list: List = { id: newId(), name, createdAt: Date.now(), manual: true };
     await putLists([list]);
     this.set({ lists: [...this.state.lists, list] });
     return list;
