@@ -1,4 +1,4 @@
-# Sift
+# bkmrks
 
 Sort, filter and browse your X bookmarks. Installable PWA.
 

@@ -37,7 +37,7 @@ export function Connect({ initial, error, hasLibrary, onConnect, onCancel }: Con
     <main className="connect">
       <div className="connect-card">
         <div className="brand large">
-          <Logo /> Sift
+          <Logo /> bkmrks
         </div>
         <h1>Sort and filter your X bookmarks.</h1>
         <p className="lede">

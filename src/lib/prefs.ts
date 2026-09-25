@@ -8,8 +8,8 @@ export interface Prefs {
   query: string;
 }
 
-const KEY = "sift.prefs";
-const SCROLL_KEY = "sift.scroll";
+const KEY = "bkmrks.prefs";
+const SCROLL_KEY = "bkmrks.scroll";
 const SORTS: SortKey[] = ["saved", "posted", "likes", "reposts", "replies", "bookmarks", "views"];
 const TYPES: ContentType[] = ["text", "image", "video"];
 
