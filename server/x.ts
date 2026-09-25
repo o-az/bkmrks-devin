@@ -1,4 +1,4 @@
-import { parseBookmarksPage, UnrecognizedResponse } from "../src/lib/parse";
+import { parseBookmarksPage, UnrecognizedResponse } from "../src/lib/parse.js";
 
 // Public bearer used by x.com's own web client; not a user credential.
 const BEARER =
