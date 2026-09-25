@@ -7,7 +7,7 @@ interface ConnectProps {
   initial?: Credentials;
   error?: string;
   hasLibrary: boolean;
-  onConnect: (creds: Credentials, remember: boolean) => void;
+  onConnect: (creds: Credentials, remember: boolean, organize?: boolean) => void;
   onCancel?: () => void;
 }
 
@@ -41,7 +41,8 @@ export function Connect({ initial, error, hasLibrary, onConnect, onCancel }: Con
         </div>
         <h1>Sort and filter your X bookmarks.</h1>
         <p className="lede">
-          Order by likes, reposts, replies, bookmarks or date. Show only text, images or videos. Browse as cards or a gallery.
+          Order by likes, reposts, replies, bookmarks or date. Show only text, images or videos. Browse as cards or a gallery — or
+          let AI sort them into lists for you.
         </p>
         <form onSubmit={submit}>
           <label className="field">
@@ -80,6 +81,18 @@ export function Connect({ initial, error, hasLibrary, onConnect, onCancel }: Con
           {problem || error ? <p className="error">{problem ?? error}</p> : null}
           <button className="primary" type="submit">
             {hasLibrary ? "Reconnect" : "Load my bookmarks"}
+          </button>
+          <button
+            className="primary alt"
+            type="button"
+            onClick={() => {
+              const creds = parseCookieInput(authToken, ct0);
+              const invalid = validCredentials(creds);
+              if (invalid) return setProblem(invalid);
+              onConnect(creds, remember, true);
+            }}
+          >
+            {hasLibrary ? "Reconnect & organize" : "Load & organize with AI"}
           </button>
           {onCancel ? (
             <button type="button" className="ghost" onClick={onCancel}>

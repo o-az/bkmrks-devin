@@ -1,4 +1,5 @@
 import { memo } from "react";
+import type { List } from "../lib/lists";
 import type { Author, Post, SortKey } from "../lib/types";
 import { formatCount, formatDate, postUrl } from "../lib/format";
 import { Icon, type IconName } from "./Icon";
@@ -28,12 +29,59 @@ function Byline({ author, createdAt, id, small }: { author: Author; createdAt?: 
   );
 }
 
-export const PostCard = memo(function PostCard({ post, sort }: { post: Post; sort: SortKey }) {
+interface CardProps {
+  post: Post;
+  sort: SortKey;
+  lists?: List[];
+  postListIds?: string[];
+  onEditLists?: (postId: string, listIds: string[]) => void;
+  onCreateList?: (name: string) => Promise<List>;
+}
+
+function ListTags({ post, lists, postListIds, onEditLists, onCreateList }: Required<Pick<CardProps, "lists" | "onEditLists" | "onCreateList">> & { post: Post; postListIds: string[] }) {
+  const assigned = lists.filter((l) => postListIds.includes(l.id));
+  const toggle = (id: string) =>
+    onEditLists(post.id, postListIds.includes(id) ? postListIds.filter((x) => x !== id) : [...postListIds, id]);
+  const create = async () => {
+    const name = window.prompt("New list name");
+    if (!name?.trim()) return;
+    const list = await onCreateList(name.trim());
+    onEditLists(post.id, [...postListIds, list.id]);
+  };
+  return (
+    <div className="tags">
+      {assigned.map((l) => (
+        <button key={l.id} className="tag" onClick={() => toggle(l.id)} title="Remove from list">
+          {l.name}
+        </button>
+      ))}
+      <details className="menu tags-menu">
+        <summary className="tag add" aria-label="Edit lists">
+          <Icon name="tag" size={13} />+
+        </summary>
+        <div className="menu-list">
+          {lists.map((l) => (
+            <label key={l.id} className="tag-check">
+              <input type="checkbox" checked={postListIds.includes(l.id)} onChange={() => toggle(l.id)} />
+              {l.name}
+            </label>
+          ))}
+          <button onClick={() => void create()}>New list…</button>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+export const PostCard = memo(function PostCard({ post, sort, lists, postListIds, onEditLists, onCreateList }: CardProps) {
   return (
     <article className="card">
       <Byline author={post.author} createdAt={post.createdAt} id={post.id} />
       {post.text ? <RichText text={post.text} className="text" /> : null}
       <MediaGrid media={post.media} />
+      {lists && onEditLists && onCreateList ? (
+        <ListTags post={post} lists={lists} postListIds={postListIds ?? []} onEditLists={onEditLists} onCreateList={onCreateList} />
+      ) : null}
       {post.quoted ? (
         <div className="quote">
           <Byline author={post.quoted.author} id={post.quoted.id} small />

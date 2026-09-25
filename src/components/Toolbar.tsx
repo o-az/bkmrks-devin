@@ -27,10 +27,12 @@ interface ToolbarProps {
   prefs: Prefs;
   counts: Record<ContentType, number>;
   total: number;
+  lists: { id: string; name: string }[];
+  listCounts: Record<string, number>;
   onChange: (patch: Partial<Prefs>) => void;
 }
 
-export function Toolbar({ prefs, counts, total, onChange }: ToolbarProps) {
+export function Toolbar({ prefs, counts, total, lists, listCounts, onChange }: ToolbarProps) {
   const toggle = (t: ContentType) =>
     onChange({ types: prefs.types.includes(t) ? prefs.types.filter((x) => x !== t) : [...prefs.types, t] });
   return (
@@ -57,6 +59,26 @@ export function Toolbar({ prefs, counts, total, onChange }: ToolbarProps) {
             </button>
           ))}
         </div>
+        {lists.length > 0 && (
+          <div className="chips lists" role="group" aria-label="Lists">
+            <button className="chip" aria-pressed={prefs.list === null} onClick={() => onChange({ list: null })}>
+              All <span className="count">{total}</span>
+            </button>
+            {[...lists]
+              .sort((a, b) => (listCounts[b.id] ?? 0) - (listCounts[a.id] ?? 0))
+              .map((l) => (
+                <button key={l.id} className="chip" aria-pressed={prefs.list === l.id} onClick={() => onChange({ list: l.id })}>
+                  <Icon name="folder" size={14} />
+                  {l.name} <span className="count">{listCounts[l.id] ?? 0}</span>
+                </button>
+              ))}
+            {(listCounts.unsorted ?? 0) > 0 && (
+              <button className="chip" aria-pressed={prefs.list === "unsorted"} onClick={() => onChange({ list: "unsorted" })}>
+                Unsorted <span className="count">{listCounts.unsorted}</span>
+              </button>
+            )}
+          </div>
+        )}
         <div className="sorting">
           <label className="select">
             <span className="sr-only">Sort by</span>

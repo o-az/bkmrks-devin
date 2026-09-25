@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
+import type { Assignment, List } from "../lib/lists";
 import type { Post, SortKey, ViewMode } from "../lib/types";
 import { loadScroll, saveScroll } from "../lib/prefs";
 import { PostCard } from "./PostCard";
@@ -27,6 +28,9 @@ function useWidth(ref: React.RefObject<HTMLElement | null>): number {
   return width;
 }
 
+const NO_LISTS: List[] = [];
+const NO_IDS: string[] = [];
+
 interface FeedProps {
   posts: Post[];
   sort: SortKey;
@@ -34,9 +38,13 @@ interface FeedProps {
   /** Changes whenever the filter/sort selection changes; resets scroll to top. */
   selectionKey: string;
   onOpen: (index: number) => void;
+  lists?: List[];
+  assignments?: Map<string, Assignment>;
+  onEditLists?: (postId: string, listIds: string[]) => void;
+  onCreateList?: (name: string) => Promise<List>;
 }
 
-export function Feed({ posts, sort, view, selectionKey, onOpen }: FeedProps) {
+export function Feed({ posts, sort, view, selectionKey, onOpen, lists = NO_LISTS, assignments, onEditLists, onCreateList }: FeedProps) {
   const ref = useRef<HTMLDivElement>(null);
   const width = useWidth(ref);
   const cols = view === "gallery" ? columnsFor(width) : 1;
@@ -124,7 +132,14 @@ export function Feed({ posts, sort, view, selectionKey, onOpen }: FeedProps) {
             }}
           >
             {view === "list" ? (
-              <PostCard post={posts[item.index]!} sort={sort} />
+              <PostCard
+                post={posts[item.index]!}
+                sort={sort}
+                lists={lists.length ? lists : undefined}
+                postListIds={assignments?.get(posts[item.index]!.id)?.listIds ?? NO_IDS}
+                onEditLists={onEditLists}
+                onCreateList={onCreateList}
+              />
             ) : (
               posts
                 .slice(item.index * cols, item.index * cols + cols)
