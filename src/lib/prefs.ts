@@ -6,6 +6,7 @@ export interface Prefs {
   dir: SortDir;
   view: ViewMode;
   query: string;
+  list: string | null;
 }
 
 const KEY = "bkmrks.prefs";
@@ -13,7 +14,7 @@ const SCROLL_KEY = "bkmrks.scroll";
 const SORTS: SortKey[] = ["saved", "posted", "likes", "reposts", "replies", "bookmarks", "views"];
 const TYPES: ContentType[] = ["text", "image", "video"];
 
-export const DEFAULT_PREFS: Prefs = { types: [], sort: "saved", dir: "desc", view: "list", query: "" };
+export const DEFAULT_PREFS: Prefs = { types: [], sort: "saved", dir: "desc", view: "list", query: "", list: null };
 
 export function loadPrefs(): Prefs {
   try {
@@ -24,6 +25,7 @@ export function loadPrefs(): Prefs {
       dir: v.dir === "asc" ? "asc" : "desc",
       view: v.view === "gallery" ? "gallery" : "list",
       query: typeof v.query === "string" ? v.query : "",
+      list: typeof v.list === "string" ? v.list : null,
     };
   } catch {
     return DEFAULT_PREFS;

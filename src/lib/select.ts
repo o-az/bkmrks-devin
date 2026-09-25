@@ -1,3 +1,4 @@
+import { UNSORTED, type Assignment } from "./lists";
 import type { ContentType, Post, SortDir, SortKey } from "./types";
 
 export function contentTypes(post: Post): Set<ContentType> {
@@ -27,13 +28,16 @@ export interface Selection {
   query: string;
   sort: SortKey;
   dir: SortDir;
+  /** List id, UNSORTED, or null for the whole feed. */
+  list: string | null;
 }
 
 /** Filter (types OR'd, search terms AND'd) then sort; posts missing the sort metric always go last. */
-export function selectPosts(posts: Post[], { types, query, sort, dir }: Selection): Post[] {
+export function selectPosts(posts: Post[], { types, query, sort, dir, list }: Selection, assignments: Map<string, Assignment> = new Map()): Post[] {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const wanted = new Set(types);
   const filtered = posts.filter((p) => {
+    if (list === UNSORTED ? (assignments.get(p.id)?.listIds.length ?? 0) > 0 : list !== null && !assignments.get(p.id)?.listIds.includes(list)) return false;
     if (wanted.size && ![...contentTypes(p)].some((t) => wanted.has(t))) return false;
     if (!terms.length) return true;
     const hay = `${p.text} ${p.author.name} @${p.author.handle} ${p.quoted?.text ?? ""} ${p.quoted?.author.handle ?? ""}`.toLowerCase();
