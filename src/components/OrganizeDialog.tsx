@@ -25,7 +25,7 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
   const [step, setStep] = useState<Step>("setup");
   const [progress, setProgress] = useState<Progress>({ phase: "preparing", done: 0, total: 1 });
   const [error, setError] = useState<string | null>(null);
-  const [proposal, setProposal] = useState<ProposedList[]>([]);
+  const [proposal, setProposal] = useState<(ProposedList & { ci: number })[]>([]);
   const [unsorted, setUnsorted] = useState<string[]>([]);
   const model = useRef<{ centroids: number[][] } | undefined>(undefined);
   const abort = useRef<AbortController | null>(null);
@@ -87,9 +87,8 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
     const named = proposal.filter((l) => l.name.trim());
     const final: Proposal = { lists: named.map((l) => ({ name: l.name.trim(), postIds: l.postIds })), unsorted };
     // Centroids follow each list by its original index; merges keep the target's centroid.
-    const aligned = model.current
-      ? { centroids: named.flatMap((l) => (model.current!.centroids[(l as ProposedList & { ci?: number }).ci ?? -1] ? [model.current!.centroids[(l as ProposedList & { ci?: number }).ci ?? -1]!] : [])) }
-      : undefined;
+    const centroids = model.current?.centroids;
+    const aligned = centroids ? { centroids: named.map((l) => centroids[l.ci]!) } : undefined;
     await lists.applyProposal(final, aligned);
     setStep("done");
   };
