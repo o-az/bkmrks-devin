@@ -136,7 +136,7 @@ export function App() {
     <>
       <header className="topbar">
         <div className="brand">
-          <Logo /> Sift
+          <Logo /> bkmrks
         </div>
         <div className={`status ${state.status.kind}`} role="status">
           {busy ? <span className="spinner" /> : null}

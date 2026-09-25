@@ -1,6 +1,6 @@
 import type { Credentials } from "./types";
 
-const KEY = "sift.credentials";
+const KEY = "bkmrks.credentials";
 
 /** Accepts either the two raw values or a pasted Cookie header / cookie list containing both. */
 export function parseCookieInput(authToken: string, ct0: string): Credentials {

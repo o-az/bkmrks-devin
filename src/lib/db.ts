@@ -1,6 +1,6 @@
 import type { Post } from "./types";
 
-const DB_NAME = "sift";
+const DB_NAME = "bkmrks";
 const POSTS = "posts";
 const META = "meta";
 

@@ -22,7 +22,7 @@ const api: Connect.NextHandleFunction = async (req, res) => {
 
 function apiPlugin(): Plugin {
   return {
-    name: "sift-api",
+    name: "bkmrks-api",
     configureServer: (server) => void server.middlewares.use("/api/bookmarks", api),
     configurePreviewServer: (server) => void server.middlewares.use("/api/bookmarks", api),
   };
@@ -36,8 +36,8 @@ export default defineConfig({
       registerType: "prompt",
       includeAssets: ["favicon.svg", "apple-touch-icon.png"],
       manifest: {
-        name: "Sift — X bookmarks, sorted",
-        short_name: "Sift",
+        name: "bkmrks — X bookmarks, sorted",
+        short_name: "bkmrks",
         description: "Sort and filter your X bookmarks by engagement, date and media type.",
         theme_color: "#0d0e10",
         background_color: "#0d0e10",
