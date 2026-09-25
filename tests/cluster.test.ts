@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chooseK, kmeans, nameClusters } from "../src/lib/organize/cluster";
+import { excerpt } from "../src/lib/organize/text";
 
 function vec(seed: number, dim = 8): Float32Array {
   const v = new Float32Array(dim).fill(0);
@@ -38,6 +39,23 @@ describe("chooseK", () => {
     expect(chooseK(5)).toBe(4);
     expect(chooseK(200)).toBe(10);
     expect(chooseK(100000)).toBe(15);
+  });
+});
+
+describe("excerpt", () => {
+  it("returns short text collapsed but whole", () => {
+    expect(excerpt("  hello\n\n  world  ", 140)).toBe("hello world");
+  });
+
+  it("cuts long text at a word boundary with an ellipsis", () => {
+    const out = excerpt("the quick brown fox jumps over the lazy dog again and again", 40);
+    expect(out).toBe("the quick brown fox jumps over the lazy…");
+    expect(out.endsWith("…")).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(41);
+  });
+
+  it("cuts mid-word when no usable space is near the limit", () => {
+    expect(excerpt("averylongunbrokenwordthathasmorecharacters", 20)).toBe("averylongunbrokenwor…");
   });
 });
 

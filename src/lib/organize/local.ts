@@ -5,7 +5,9 @@ import { chooseK, kmeans, nameClusters } from "./cluster";
 import { postText } from "./text";
 import type { Classifier, Progress, Proposal } from "./types";
 
-export type Embedder = (texts: string[], onProgress: (done: number, total: number) => void, signal: AbortSignal) => Promise<Float32Array[]>;
+export type Embedder = (texts: string[], onProgress: (done: number, total: number, note?: string) => void, signal: AbortSignal) => Promise<Float32Array[]>;
+
+const mb = (bytes: number) => (bytes / 1048576).toFixed(1);
 
 const MIN_SIMILARITY = 0.2;
 const SECOND_LIST_DELTA = 0.03;
@@ -24,6 +26,8 @@ export function workerEmbedder(): Embedder {
       worker.onmessage = (e: MessageEvent) => {
         const m = e.data;
         if (m.type === "progress") onProgress(m.done, m.total);
+        else if (m.type === "download") onProgress(0, m.total, `Downloading model… ${m.total ? `${mb(m.loaded)} / ${mb(m.total)} MB` : `${mb(m.loaded)} MB`}`);
+        else if (m.type === "note") onProgress(0, 0, m.message);
         else if (m.type === "done") {
           settle();
           worker.terminate();
@@ -106,7 +110,7 @@ export class LocalClassifier implements Classifier {
     if (missing.length) {
       const fresh = await this.embed(
         missing.map((i) => texts[i]!),
-        (done) => onProgress({ phase: "embedding", done, total: missing.length }),
+        (done, _total, note) => onProgress({ phase: "embedding", done, total: missing.length, note }),
         signal,
       );
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");

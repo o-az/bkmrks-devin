@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
+import { getMeta } from "./lib/db";
 import { Library, type LibraryState } from "./lib/library";
 import { Lists } from "./lib/lists";
 import { assignNew } from "./lib/organize/run";
@@ -60,7 +61,17 @@ export function App() {
   useEffect(() => {
     void library.load();
     void lists.load();
+    // A review interrupted by a suspended/reloaded tab reopens the dialog.
+    void getMeta("organize.pending").then((p) => p && setResumeOrganize(true));
   }, []);
+
+  const [resumeOrganize, setResumeOrganize] = useState(false);
+  useEffect(() => {
+    if (resumeOrganize && state.ready && state.posts.length) {
+      setResumeOrganize(false);
+      setOrganizing(true);
+    }
+  }, [resumeOrganize, state.ready, state.posts.length]);
 
   useEffect(() => {
     if (state.ready && session) void library.sync(session.creds);

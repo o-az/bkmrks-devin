@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { getMeta, setMeta } from "../lib/db";
 import { Lists } from "../lib/lists";
 import { BYOK_PRESETS } from "../lib/organize/byok";
 import { runOrganize } from "../lib/organize/run";
+import { excerpt } from "../lib/organize/text";
 import type { OrganizeSettings, Progress, Proposal, ProposedList } from "../lib/organize/types";
 import type { Post } from "../lib/types";
 import { Icon } from "./Icon";
@@ -16,10 +18,16 @@ type Step = "setup" | "running" | "review" | "done";
 
 const PHASE_LABELS: Record<Progress["phase"], string> = {
   preparing: "Preparing posts",
-  embedding: "Embedding posts (first run downloads a 23 MB model)",
+  embedding: "Embedding posts",
   discovering: "Discovering categories",
   assigning: "Assigning posts to lists",
 };
+
+interface PendingReview {
+  proposal: Proposal;
+  centroids: number[][] | null;
+  at: number;
+}
 
 export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
   const [step, setStep] = useState<Step>("setup");
@@ -28,8 +36,10 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
   const [proposal, setProposal] = useState<(ProposedList & { ci: number })[]>([]);
   const [unsorted, setUnsorted] = useState<string[]>([]);
   const [elapsed, setElapsed] = useState(0);
+  const [restored, setRestored] = useState(false);
   const model = useRef<{ centroids: number[][] } | undefined>(undefined);
   const abort = useRef<AbortController | null>(null);
+  const nameInputs = useRef<(HTMLInputElement | null)[]>([]);
 
   const saved = lists.getState().settings;
   const [provider, setProvider] = useState<"local" | "byok">(saved?.provider ?? "local");
@@ -52,6 +62,18 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
   }, []);
 
   useEffect(() => () => abort.current?.abort(), []);
+
+  // A suspended/reloaded tab mid-review reopens where it left off.
+  useEffect(() => {
+    void getMeta<PendingReview>("organize.pending").then((p) => {
+      if (!p?.proposal?.lists?.length) return;
+      setProposal(p.proposal.lists.map((l, ci) => ({ ...l, ci })));
+      setUnsorted(p.proposal.unsorted ?? []);
+      model.current = p.centroids ? { centroids: p.centroids } : undefined;
+      setRestored(true);
+      setStep("review");
+    });
+  }, []);
 
   useEffect(() => {
     if (step !== "running") return;
@@ -79,8 +101,11 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
       await lists.saveSettings(stored);
       if (autoApply) {
         await lists.applyProposal(result.proposal, result.model);
+        await setMeta("organize.pending", null);
         setStep("done");
       } else {
+        await setMeta("organize.pending", { proposal: result.proposal, centroids: result.model?.centroids ?? null, at: Date.now() });
+        setRestored(false);
         setProposal(result.proposal.lists.map((l, ci) => ({ ...l, ci })));
         setUnsorted(result.proposal.unsorted);
         setStep("review");
@@ -96,8 +121,11 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
     const final: Proposal = { lists: named.map((l) => ({ name: l.name.trim(), postIds: l.postIds })), unsorted };
     // Centroids follow each list by its original index; merges keep the target's centroid.
     const centroids = model.current?.centroids;
-    const aligned = centroids ? { centroids: named.map((l) => centroids[l.ci]!) } : undefined;
+    // Lists made in review (ci < 0) get a zero centroid: cosine 0 < MIN_SIMILARITY, nothing auto-assigns to them.
+    const zero = new Array(centroids?.[0]?.length ?? 384).fill(0);
+    const aligned = centroids ? { centroids: named.map((l) => (l.ci >= 0 ? centroids[l.ci]! : zero)) } : undefined;
     await lists.applyProposal(final, aligned);
+    await setMeta("organize.pending", null);
     setStep("done");
   };
 
@@ -107,7 +135,7 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
 
   return (
     <div className="organize" role="dialog" aria-modal="true" aria-label="Organize bookmarks" onClick={(e) => e.target === e.currentTarget && step === "setup" && onClose()}>
-      <div className="organize-card">
+      <div className={`organize-card${step === "review" ? " review" : ""}`}>
         {step === "setup" && (
           <>
             <h2>Organize into lists</h2>
@@ -198,6 +226,9 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
                   <button className="ghost" onClick={() => { setError(null); setStep("setup"); }}>
                     Back
                   </button>
+                  <button className="primary" onClick={() => void start()}>
+                    Retry
+                  </button>
                 </div>
               </>
             ) : (
@@ -230,11 +261,18 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
         {step === "review" && (
           <>
             <h2>Review lists</h2>
+            {restored ? <p className="muted small">Restored your unreviewed lists from last time.</p> : null}
             <div className="review-lists">
               {proposal.map((l, i) => (
                 <div className="review-list" key={i}>
                   <div className="review-head">
-                    <input value={l.name} onChange={(e) => setProposal(proposal.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} />
+                    <input
+                      ref={(el) => {
+                        nameInputs.current[i] = el;
+                      }}
+                      value={l.name}
+                      onChange={(e) => setProposal(proposal.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                    />
                     <span className="count">{l.postIds.length}</span>
                   </div>
                   <ul>
@@ -242,7 +280,7 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
                       const p = postById.current.get(id);
                       return p ? (
                         <li key={id}>
-                          {p.author.name}: {p.text.slice(0, 100)}
+                          {p.author.name}: {excerpt(p.text, 140)}
                         </li>
                       ) : null;
                     })}
@@ -275,10 +313,19 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
                   </div>
                 </div>
               ))}
+              <button
+                className="ghost new-list"
+                onClick={() => {
+                  setProposal([...proposal, { name: "New list", postIds: [], ci: -1 }]);
+                  requestAnimationFrame(() => nameInputs.current[proposal.length]?.select());
+                }}
+              >
+                + New list
+              </button>
               <p className="muted small">{unsorted.length.toLocaleString()} posts stay unsorted.</p>
             </div>
             <div className="actions-row">
-              <button className="ghost" onClick={() => setStep("setup")}>
+              <button className="ghost" onClick={() => { void setMeta("organize.pending", null); setStep("setup"); }}>
                 Back
               </button>
               <button className="primary" onClick={() => void apply()}>

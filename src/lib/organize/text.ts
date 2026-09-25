@@ -20,3 +20,13 @@ export function postText(post: Post): string {
     .trim()
     .slice(0, 600);
 }
+
+/** Whitespace-collapsed one-line excerpt ending on a word boundary with an ellipsis. */
+export function excerpt(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  const end = space > max * 0.6 ? space : cut.length;
+  return `${cut.slice(0, end).trimEnd()}…`;
+}
