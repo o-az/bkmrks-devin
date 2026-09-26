@@ -215,6 +215,7 @@ export class Lists {
       putAssignments([], [...this.state.assignments.keys()]),
       setMeta("organize.model", null),
       setMeta("organize.settings", null),
+      setMeta("organize.pending", null),
     ]);
     this.set({ lists: [], assignments: new Map(), settings: null, model: null });
   }
