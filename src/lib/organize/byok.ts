@@ -138,12 +138,11 @@ export class ByokClassifier implements Classifier {
     }
   }
 
-  /** One tiny request to confirm URL, model and key work. */
+  /** One tiny request to confirm URL, model and key work and the reply parses like a real run. */
   async test(signal: AbortSignal): Promise<{ status: number; ms: number }> {
     const started = performance.now();
-    const res = await this.send([{ role: "user", content: 'Reply with the JSON {"ok": true}.' }], 16, signal);
-    if (!res.ok) throw await failure(res);
-    return { status: res.status, ms: Math.round(performance.now() - started) };
+    await this.chat([{ role: "user", content: 'Reply with the JSON {"ok": true}.' }], 64, signal);
+    return { status: 200, ms: Math.round(performance.now() - started) };
   }
 
   private async send(messages: ChatMessage[], maxTokens: number, signal: AbortSignal): Promise<Response> {

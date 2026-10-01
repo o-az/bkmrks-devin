@@ -83,15 +83,24 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
     return () => clearInterval(timer);
   }, [step]);
 
-  useEffect(() => setProbe(null), [baseUrl, modelName, apiKey]);
+  const probeRun = useRef<AbortController | null>(null);
+  useEffect(() => {
+    probeRun.current?.abort();
+    setProbe(null);
+  }, [baseUrl, modelName, apiKey]);
+  useEffect(() => () => probeRun.current?.abort(), []);
 
   const testProvider = async () => {
+    probeRun.current?.abort();
+    const run = new AbortController();
+    probeRun.current = run;
     setProbe({ kind: "running" });
     try {
       const classifier = new ByokClassifier({ provider: "byok", seeds: [], autoApply: false, byok: { baseUrl, model: modelName, apiKey } });
-      setProbe({ kind: "ok", ...(await classifier.test(new AbortController().signal)) });
+      const result = await classifier.test(run.signal);
+      if (!run.signal.aborted) setProbe({ kind: "ok", ...result });
     } catch (err) {
-      setProbe({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      if (!run.signal.aborted) setProbe({ kind: "error", message: err instanceof Error ? err.message : String(err) });
     }
   };
 

@@ -195,3 +195,10 @@ describe("ByokClassifier default fetch", () => {
     expect(receiver).not.toBeInstanceOf(ByokClassifier);
   });
 });
+
+describe("ByokClassifier.test", () => {
+  it("fails when a 200 response has no usable completion", async () => {
+    const f = fetchMock([() => new Response(JSON.stringify({ choices: [] }), { status: 200 })]);
+    await expect(new ByokClassifier(settings(), f).test(new AbortController().signal)).rejects.toThrow(/Empty response/);
+  });
+});
