@@ -220,7 +220,7 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
                   <button className="ghost" onClick={() => void testProvider()} disabled={probe?.kind === "running" || !baseUrl || !modelName || !apiKey}>
                     {probe?.kind === "running" ? "Testing…" : "Test connection"}
                   </button>
-                  <span className="muted small">Quick check: sends one tiny request (a few tokens) to confirm the URL, model and key work. Doesn't organize anything.</span>
+                  <span className="muted small">Quick check: sends one tiny request to confirm the URL, model and key work. Doesn't organize anything.</span>
                 </div>
                 {probe?.kind === "ok" && (
                   <p className="probe-result ok" role="status">

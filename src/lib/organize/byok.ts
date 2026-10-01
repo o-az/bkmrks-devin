@@ -141,7 +141,7 @@ export class ByokClassifier implements Classifier {
   /** One tiny request to confirm URL, model and key work and the reply parses like a real run. */
   async test(signal: AbortSignal): Promise<{ status: number; ms: number }> {
     const started = performance.now();
-    await this.chat([{ role: "user", content: 'Reply with the JSON {"ok": true}.' }], 64, signal);
+    await this.chat([{ role: "user", content: 'Reply with the JSON {"ok": true}.' }], 1500, signal);
     return { status: 200, ms: Math.round(performance.now() - started) };
   }
 
