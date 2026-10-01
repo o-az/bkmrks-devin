@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getMeta, setMeta } from "../lib/db";
 import { Lists } from "../lib/lists";
-import { BYOK_PRESETS, ByokClassifier } from "../lib/organize/byok";
+import { BYOK_PRESETS, ByokClassifier, type ModelOption } from "../lib/organize/byok";
 import { runOrganize } from "../lib/organize/run";
 import { excerpt } from "../lib/organize/text";
 import type { OrganizeSettings, Progress, Proposal, ProposedList } from "../lib/organize/types";
@@ -35,6 +35,7 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<(ProposedList & { ci: number })[]>([]);
   const [unsorted, setUnsorted] = useState<string[]>([]);
+  const [skipped, setSkipped] = useState<Proposal["skipped"]>(undefined);
   const [elapsed, setElapsed] = useState(0);
   const [restored, setRestored] = useState(false);
   const model = useRef<{ centroids: number[][] } | undefined>(undefined);
@@ -49,6 +50,7 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
   const [apiKey, setApiKey] = useState(saved?.byok?.apiKey ?? "");
   const [rememberKey, setRememberKey] = useState(!!saved?.byok?.apiKey);
   const [probe, setProbe] = useState<{ kind: "running" } | { kind: "ok"; status: number; ms: number } | { kind: "error"; message: string } | null>(null);
+  const [models, setModels] = useState<{ kind: "loading" } | { kind: "ok"; list: ModelOption[] } | { kind: "error"; message: string } | null>(null);
   const [seeds, setSeeds] = useState((saved?.seeds ?? []).join("\n"));
   const [autoApply, setAutoApply] = useState(saved?.autoApply ?? false);
 
@@ -70,6 +72,7 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
       if (!p?.proposal?.lists?.length) return;
       setProposal(p.proposal.lists.map((l, ci) => ({ ...l, ci })));
       setUnsorted(p.proposal.unsorted ?? []);
+      setSkipped(p.proposal.skipped);
       model.current = p.centroids ? { centroids: p.centroids } : undefined;
       setRestored(true);
       setStep("review");
@@ -89,6 +92,23 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
     setProbe(null);
   }, [baseUrl, modelName, apiKey]);
   useEffect(() => () => probeRun.current?.abort(), []);
+
+  useEffect(() => {
+    setModels(null);
+    if (provider !== "byok" || !baseUrl.trim() || !apiKey.trim()) return;
+    const run = new AbortController();
+    const timer = setTimeout(() => {
+      setModels({ kind: "loading" });
+      new ByokClassifier({ provider: "byok", seeds: [], autoApply: false, byok: { baseUrl, model: "-", apiKey } })
+        .listModels(run.signal)
+        .then((list) => !run.signal.aborted && setModels({ kind: "ok", list }))
+        .catch((err) => !run.signal.aborted && setModels({ kind: "error", message: err instanceof Error ? err.message : String(err) }));
+    }, 500);
+    return () => {
+      clearTimeout(timer);
+      run.abort();
+    };
+  }, [provider, baseUrl, apiKey]);
 
   const testProvider = async () => {
     probeRun.current?.abort();
@@ -118,6 +138,7 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
     try {
       const result = await runOrganize(settings, posts, { onProgress: setProgress, signal: abort.current.signal });
       model.current = result.model;
+      setSkipped(result.proposal.skipped);
       // Keep the key on device only if asked; otherwise save settings without it.
       const stored = { ...settings, byok: settings.byok ? { ...settings.byok, apiKey: rememberKey ? apiKey : "" } : undefined };
       await lists.saveSettings(stored);
@@ -206,7 +227,30 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
                 </label>
                 <label className="field">
                   <span>Model</span>
-                  <input value={modelName} onChange={(e) => { setModelName(e.target.value); setPreset("custom"); }} spellCheck={false} />
+                  <input
+                    value={modelName}
+                    onChange={(e) => { setModelName(e.target.value); setPreset("custom"); }}
+                    list="byok-models"
+                    placeholder={models?.kind === "ok" ? "Search or type a model ID" : "Model ID"}
+                    spellCheck={false}
+                  />
+                  {models?.kind === "ok" && (
+                    <datalist id="byok-models">
+                      {models.list.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </datalist>
+                  )}
+                  <span className="muted small">
+                    {models?.kind === "loading" && "Loading models from the provider…"}
+                    {models?.kind === "ok" &&
+                      (models.list.length
+                        ? `${models.list.length} chat models available — start typing to search.${models.list.some((m) => m.id === modelName.trim()) || !modelName.trim() ? "" : " This one isn't in the provider's list."}`
+                        : "The provider listed no chat models; type a model ID.")}
+                    {models?.kind === "error" && `Couldn't load the model list (${models.message}); type a model ID.`}
+                  </span>
                 </label>
                 <label className="field">
                   <span>API key</span>
@@ -300,6 +344,17 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
           <>
             <h2>Review lists</h2>
             {restored ? <p className="muted small">Restored your unreviewed lists from last time.</p> : null}
+            {skipped && skipped.refused.length + skipped.failed.length > 0 ? (
+              <p className="warning">
+                {[
+                  skipped.refused.length ? `${skipped.refused.length.toLocaleString()} refused by the provider's content filter` : "",
+                  skipped.failed.length ? `${skipped.failed.length.toLocaleString()} failed or timed out` : "",
+                ]
+                  .filter(Boolean)
+                  .join(", ")}{" "}
+                — those posts were left in Unsorted. You can add them to lists by hand.
+              </p>
+            ) : null}
             <div className="review-lists">
               {proposal.map((l, i) => (
                 <div className="review-list" key={i}>
@@ -378,6 +433,17 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
               <Icon name="sparkles" /> Organized
             </h2>
             <p className="muted">Your bookmarks are now sorted into lists. Use the list chips above the feed to filter.</p>
+            {skipped && skipped.refused.length + skipped.failed.length > 0 ? (
+              <p className="warning">
+                {[
+                  skipped.refused.length ? `${skipped.refused.length.toLocaleString()} refused by the provider's content filter` : "",
+                  skipped.failed.length ? `${skipped.failed.length.toLocaleString()} failed or timed out` : "",
+                ]
+                  .filter(Boolean)
+                  .join(", ")}{" "}
+                — those posts were left in Unsorted. You can add them to lists by hand.
+              </p>
+            ) : null}
             <div className="actions-row">
               <button className="primary" onClick={finish}>
                 Done
