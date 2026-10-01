@@ -339,8 +339,9 @@ export class ByokClassifier implements Classifier {
     let cursor = 0;
 
     // Refusals and timeouts are split in half until the offending posts are isolated.
-    // A timed-out batch is split once; repeated timeouts usually mean the provider is down.
-    const run = async (batch: Post[], timedOut = false): Promise<void> => {
+    // Several timeouts in a row usually mean the provider is down, so stop splitting on timeouts then.
+    let timeoutStreak = 0;
+    const run = async (batch: Post[]): Promise<void> => {
       try {
         const parsed = (await this.chatRetry(
           [
@@ -355,6 +356,7 @@ export class ByokClassifier implements Classifier {
           signal,
           (note) => onProgress({ phase: "assigning", done, total: posts.length, note }),
         )) as { assignments?: Record<string, number[]> };
+        timeoutStreak = 0;
         const map = parsed?.assignments ?? {};
         for (const p of batch) {
           const idxs = Array.isArray(map[p.id]) ? map[p.id]! : [];
@@ -363,10 +365,11 @@ export class ByokClassifier implements Classifier {
       } catch (err) {
         const name = (err as Error).name;
         if (name === "AbortError" || name === "Fatal") throw err;
-        if ((name === "Refused" || (name === "Timeout" && !timedOut)) && batch.length > 1) {
+        if (name === "Timeout") timeoutStreak++;
+        if ((name === "Refused" || (name === "Timeout" && timeoutStreak < 6)) && batch.length > 1) {
           const half = Math.ceil(batch.length / 2);
-          await run(batch.slice(0, half), timedOut || name === "Timeout");
-          await run(batch.slice(half), timedOut || name === "Timeout");
+          await run(batch.slice(0, half));
+          await run(batch.slice(half));
           return;
         }
         // Don't abort the run: these posts stay unsorted.

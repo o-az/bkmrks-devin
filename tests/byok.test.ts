@@ -266,7 +266,7 @@ describe("ByokClassifier review fixes", () => {
     expect(proposal.lists[0]!.postIds).toHaveLength(5);
   });
 
-  it("splits a timed-out batch only once", async () => {
+  it("stops splitting after repeated timeouts", async () => {
     const posts = Array.from({ length: 25 }, () => post());
     let assigns = 0;
     const f = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -275,8 +275,23 @@ describe("ByokClassifier review fixes", () => {
       throw new DOMException("Timed out", "TimeoutError");
     }) as unknown as typeof fetch;
     const proposal = await new ByokClassifier(settings(), f).organize(posts, [], () => {}, new AbortController().signal);
-    expect(assigns).toBe(3);
+    expect(assigns).toBeLessThanOrEqual(12);
     expect(proposal.skipped?.failed).toHaveLength(25);
+  });
+
+  it("isolates a single post that keeps timing out", async () => {
+    const posts = Array.from({ length: 25 }, () => post());
+    const slow = posts[7]!;
+    const f = vi.fn(async (_url: string, init?: RequestInit) => {
+      const text = userText(init);
+      if (text.includes("sampled posts")) return ok({ categories: [{ name: "Tech" }] });
+      if (text.includes(`${slow.id}:`)) throw new DOMException("Timed out", "TimeoutError");
+      const ids = [...text.matchAll(/^(\d+):/gm)].map((m) => m[1]!);
+      return ok({ assignments: Object.fromEntries(ids.map((id) => [id, [0]])) });
+    }) as unknown as typeof fetch;
+    const proposal = await new ByokClassifier(settings(), f).organize(posts, [], () => {}, new AbortController().signal);
+    expect(proposal.skipped?.failed).toEqual([slow.id]);
+    expect(proposal.lists[0]!.postIds).toHaveLength(24);
   });
 
   it("reports an invalid model list instead of an empty one", async () => {
