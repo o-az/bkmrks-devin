@@ -109,7 +109,7 @@ input, select { font: inherit; color: inherit; }
 .menu-list button { text-align: left; border: 0; background: none; padding: 10px 12px; border-radius: 8px; }
 .menu-list button:hover { background: var(--surface-2); }
 .menu-list .danger { color: var(--danger); }
-.menu-list { width: min(300px, calc(100vw - 24px)); }
+.actions .menu-list { width: min(300px, calc(100vw - 24px)); }
 .menu-row { display: grid; grid-template-columns: 1fr auto; align-items: center; }
 .menu-row .menu-info {
   width: 32px; height: 32px; padding: 0; display: grid; place-items: center; color: var(--muted); border-radius: 8px;
@@ -118,7 +118,7 @@ input, select { font: inherit; color: inherit; }
 .menu-help { display: none; grid-column: 1 / -1; margin: 0 12px 8px; color: var(--muted); font-size: 13px; line-height: 1.4; }
 .menu-row.open .menu-help { display: block; }
 @media (hover: hover) {
-  .menu-row:has(.menu-info:hover, .menu-info:focus-visible) .menu-help { display: block; }
+  .menu-row:has(.menu-info:hover) .menu-help { display: block; }
 }
 
 .spinner {
