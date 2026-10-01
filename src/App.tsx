@@ -15,6 +15,7 @@ import { Toolbar, dirLabel } from "./components/Toolbar";
 import { Feed } from "./components/Feed";
 import { Viewer } from "./components/Viewer";
 import { Icon } from "./components/Icon";
+import { MenuItem } from "./components/MenuItem";
 
 const library = new Library();
 const lists = new Lists();
@@ -248,21 +249,40 @@ export function App() {
               <Icon name="more" />
             </summary>
             <div className="menu-list" onClick={(e) => (e.currentTarget.parentElement as HTMLDetailsElement).removeAttribute("open")}>
-              <button onClick={() => void library.sync(session.creds, true)}>Re-sync everything</button>
-              <button onClick={exportLists}>Export lists</button>
-              <button onClick={() => fileInput.current?.click()}>Import lists…</button>
-              <button
-                className="danger"
+              <MenuItem
+                label="Re-sync everything"
+                help="Re-downloads your whole bookmark list from X from scratch. Use it if posts look missing or out of date. Your lists are kept. (The ↻ button only fetches new ones.)"
+                onClick={() => void library.sync(session.creds, true)}
+              />
+              <MenuItem
+                label="Export lists"
+                help="Downloads a JSON file of your lists and which posts are in them, as a backup or to move to another device."
+                onClick={exportLists}
+              />
+              <MenuItem
+                label="Import lists…"
+                help="Loads a file saved with “Export lists” and restores those lists."
+                onClick={() => fileInput.current?.click()}
+              />
+              <MenuItem
+                label="Clear lists"
+                danger
+                help="Deletes all lists and assignments on this device. Your bookmarks stay, and nothing changes on X."
                 onClick={() => {
                   if (confirm("Delete all lists and assignments? Your bookmarks stay.")) void lists.clear();
                 }}
-              >
-                Clear lists
-              </button>
-              <button onClick={() => setEditing(true)}>Update cookies</button>
-              <button className="danger" onClick={() => void signOut()}>
-                Sign out & clear data
-              </button>
+              />
+              <MenuItem
+                label="Update cookies"
+                help="Re-enter auth_token and ct0 when they expire or after you log out of X."
+                onClick={() => setEditing(true)}
+              />
+              <MenuItem
+                label="Sign out & clear data"
+                danger
+                help="Removes your cookies, bookmarks, and lists from this device. Your X account and its bookmarks aren't touched."
+                onClick={() => void signOut()}
+              />
             </div>
           </details>
         </div>
