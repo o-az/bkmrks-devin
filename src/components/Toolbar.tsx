@@ -33,6 +33,17 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ prefs, counts, total, lists, listCounts, onChange }: ToolbarProps) {
+  const listsOpen = prefs.listsOpen ?? lists.length <= 8;
+  const sortedLists = [...lists].sort((a, b) => (listCounts[b.id] ?? 0) - (listCounts[a.id] ?? 0));
+  const active =
+    prefs.list === "unsorted"
+      ? { name: "Unsorted", count: listCounts.unsorted ?? 0 }
+      : prefs.list
+        ? (() => {
+            const l = lists.find((x) => x.id === prefs.list);
+            return l ? { name: l.name, count: listCounts[l.id] ?? 0 } : null;
+          })()
+        : null;
   const toggle = (t: ContentType) =>
     onChange({ types: prefs.types.includes(t) ? prefs.types.filter((x) => x !== t) : [...prefs.types, t] });
   return (
@@ -60,23 +71,41 @@ export function Toolbar({ prefs, counts, total, lists, listCounts, onChange }: T
           ))}
         </div>
         {lists.length > 0 && (
-          <div className="chips lists" role="group" aria-label="Lists">
-            <button className="chip" aria-pressed={prefs.list === null} onClick={() => onChange({ list: null })}>
-              All <span className="count">{total}</span>
+          <div className={`chips lists${listsOpen ? " open" : ""}`} role="group" aria-label="Lists">
+            <button
+              className="chip toggle"
+              aria-expanded={listsOpen}
+              onClick={() => onChange({ listsOpen: !listsOpen })}
+              title={listsOpen ? "Hide lists" : "Show lists"}
+            >
+              <Icon name="folder" size={14} />
+              Lists <span className="count">{lists.length}</span>
+              <span className="chevron">
+                <Icon name="chevronDown" size={14} />
+              </span>
             </button>
-            {[...lists]
-              .sort((a, b) => (listCounts[b.id] ?? 0) - (listCounts[a.id] ?? 0))
-              .map((l) => (
-                <button key={l.id} className="chip" aria-pressed={prefs.list === l.id} onClick={() => onChange({ list: l.id })}>
-                  <Icon name="folder" size={14} />
-                  {l.name} <span className="count">{listCounts[l.id] ?? 0}</span>
+            {listsOpen ? (
+              <>
+                <button className="chip" aria-pressed={prefs.list === null} onClick={() => onChange({ list: null })}>
+                  All <span className="count">{total}</span>
                 </button>
-              ))}
-            {(listCounts.unsorted ?? 0) > 0 && (
-              <button className="chip" aria-pressed={prefs.list === "unsorted"} onClick={() => onChange({ list: "unsorted" })}>
-                Unsorted <span className="count">{listCounts.unsorted}</span>
+                {sortedLists.map((l) => (
+                  <button key={l.id} className="chip" aria-pressed={prefs.list === l.id} onClick={() => onChange({ list: l.id })}>
+                    {l.name} <span className="count">{listCounts[l.id] ?? 0}</span>
+                  </button>
+                ))}
+                {(listCounts.unsorted ?? 0) > 0 && (
+                  <button className="chip" aria-pressed={prefs.list === "unsorted"} onClick={() => onChange({ list: "unsorted" })}>
+                    Unsorted <span className="count">{listCounts.unsorted}</span>
+                  </button>
+                )}
+              </>
+            ) : active ? (
+              <button className="chip" aria-pressed onClick={() => onChange({ list: null })} title="Show all bookmarks" aria-label={`Clear list filter ${active.name}`}>
+                {active.name} <span className="count">{active.count}</span>
+                <Icon name="close" size={13} />
               </button>
-            )}
+            ) : null}
           </div>
         )}
         <div className="sorting">

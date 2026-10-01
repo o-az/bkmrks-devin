@@ -7,6 +7,8 @@ export interface Prefs {
   view: ViewMode;
   query: string;
   list: string | null;
+  /** Whether the list chips row is expanded; null = decide by how many lists there are. */
+  listsOpen: boolean | null;
 }
 
 const KEY = "bkmrks.prefs";
@@ -14,7 +16,7 @@ const SCROLL_KEY = "bkmrks.scroll";
 const SORTS: SortKey[] = ["saved", "posted", "likes", "reposts", "replies", "bookmarks", "views"];
 const TYPES: ContentType[] = ["text", "image", "video"];
 
-export const DEFAULT_PREFS: Prefs = { types: [], sort: "saved", dir: "desc", view: "list", query: "", list: null };
+export const DEFAULT_PREFS: Prefs = { types: [], sort: "saved", dir: "desc", view: "list", query: "", list: null, listsOpen: null };
 
 export function loadPrefs(): Prefs {
   try {
@@ -26,6 +28,7 @@ export function loadPrefs(): Prefs {
       view: v.view === "gallery" ? "gallery" : "list",
       query: typeof v.query === "string" ? v.query : "",
       list: typeof v.list === "string" ? v.list : null,
+      listsOpen: typeof v.listsOpen === "boolean" ? v.listsOpen : null,
     };
   } catch {
     return DEFAULT_PREFS;
