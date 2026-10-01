@@ -151,3 +151,47 @@ describe("ByokClassifier", () => {
     expect(out.get(p.id)).toEqual(["Tech"]);
   });
 });
+
+describe("ByokClassifier error handling", () => {
+  it("strips invisible characters and a Bearer prefix from the key", async () => {
+    const f = fetchMock([() => ok({ ok: true })]);
+    const headers: Record<string, string>[] = [];
+    const wrapped = (async (url: string, init?: RequestInit) => {
+      headers.push(init?.headers as Record<string, string>);
+      return f(url, init);
+    }) as unknown as typeof fetch;
+    await new ByokClassifier(settings({ apiKey: " Bearer sk-te\u200bst\n", baseUrl: "https://api.test/v1/ " }), wrapped).test(new AbortController().signal);
+    expect(headers[0]!.authorization).toBe("Bearer sk-test");
+  });
+
+  it("test() reports status and surfaces 401 detail", async () => {
+    const good = await new ByokClassifier(settings(), fetchMock([() => ok({ ok: true })])).test(new AbortController().signal);
+    expect(good.status).toBe(200);
+    const bad = new ByokClassifier(settings(), fetchMock([() => new Response("invalid key", { status: 401 })]));
+    await expect(bad.test(new AbortController().signal)).rejects.toThrow(/rejected the API key \(401\): invalid key/);
+  });
+
+  it("explains a rejected fetch instead of a generic message", async () => {
+    const f = (async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    await expect(new ByokClassifier(settings(), f).test(new AbortController().signal)).rejects.toThrow(/Couldn't reach api\.test: Failed to fetch/);
+  });
+});
+
+describe("ByokClassifier default fetch", () => {
+  it("calls the global fetch unbound from the classifier", async () => {
+    const original = globalThis.fetch;
+    let receiver: unknown = "unset";
+    globalThis.fetch = function (this: unknown) {
+      receiver = this;
+      return Promise.resolve(ok({ ok: true }));
+    } as typeof fetch;
+    try {
+      await new ByokClassifier(settings()).test(new AbortController().signal);
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(receiver).not.toBeInstanceOf(ByokClassifier);
+  });
+});

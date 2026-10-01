@@ -314,6 +314,11 @@ a.metric:hover { color: var(--accent); text-decoration: none; }
 .radios { display: grid; gap: 10px; margin-bottom: 14px; }
 .byok { display: grid; gap: 10px; border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
 .byok .field { margin-bottom: 0; }
+.probe { display: flex; align-items: center; gap: 12px; }
+.probe button { flex: none; }
+.probe-result { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.probe-result.ok { color: #00ba7c; }
+.probe-result.error { color: var(--danger); }
 .byok select, .byok input, .organize textarea {
   width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
 }

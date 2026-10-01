@@ -16,6 +16,66 @@ const CONCURRENCY = 3;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Header values must be ISO-8859-1; pasted keys often carry invisible or non-ASCII characters. */
+export function cleanKey(key: string): string {
+  return key.replace(/^\s*bearer\s+/i, "").replace(/[^\x21-\x7e]/g, "");
+}
+
+export function cleanBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "").replace(/\/chat\/completions$/, "");
+}
+
+function anySignal(signals: AbortSignal[]): AbortSignal {
+  if (typeof AbortSignal.any === "function") return AbortSignal.any(signals);
+  const ctrl = new AbortController();
+  for (const s of signals) {
+    if (s.aborted) {
+      ctrl.abort(s.reason);
+      break;
+    }
+    s.addEventListener("abort", () => ctrl.abort(s.reason), { once: true });
+  }
+  return ctrl.signal;
+}
+
+function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(ms);
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(new DOMException("Timed out", "TimeoutError")), ms);
+  return ctrl.signal;
+}
+
+async function failure(res: Response): Promise<Error> {
+  const detail = (await res.text().catch(() => "")).slice(0, 200);
+  const suffix = detail ? `: ${detail}` : "";
+  if (res.status === 401 || res.status === 403) {
+    const err = new Error(`Provider rejected the API key (${res.status})${suffix}`);
+    err.name = "Fatal";
+    return err;
+  }
+  if (res.status === 404) return new Error(`Not found (404) — check the base URL and model name${suffix}`);
+  if (res.status === 429 || res.status >= 500) return new Error(`Provider error ${res.status}${suffix}`);
+  return new Error(`Request failed (${res.status})${suffix}`);
+}
+
+/** Turns a rejected fetch into a message that says what actually went wrong. */
+export function describeFetchError(err: unknown, url: string): Error {
+  const host = (() => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return url;
+    }
+  })();
+  const raw = err instanceof Error ? err.message : String(err);
+  if (err instanceof DOMException && err.name === "TimeoutError") return new Error(`${host} didn't respond within 90 s.`);
+  if (/invalid url|failed to parse url|not a valid url/i.test(raw)) return new Error(`Base URL isn't a valid URL: ${url}`);
+  if (/ISO-8859-1|header/i.test(raw)) return new Error(`The API key contains characters that can't be sent in a header — re-enter it. (${raw})`);
+  return new Error(
+    `Couldn't reach ${host}: ${raw}. Check the base URL and your connection; if they're right, the provider may block requests from browsers (CORS).`,
+  );
+}
+
 interface ChatMessage {
   role: "system" | "user";
   content: string;
@@ -43,13 +103,14 @@ export function parseJson(content: string): unknown {
 export class ByokClassifier implements Classifier {
   constructor(
     private readonly settings: OrganizeSettings,
-    private readonly fetchFn: typeof fetch = globalThis.fetch,
+    private readonly fetchFn: typeof fetch = (input, init) => globalThis.fetch(input, init),
   ) {}
 
   private get cfg() {
     const c = this.settings.byok;
-    if (!c?.baseUrl || !c.model || !c.apiKey) throw new Error("API provider isn't configured.");
-    return c;
+    const cfg = c && { baseUrl: cleanBaseUrl(c.baseUrl), model: c.model.trim(), apiKey: cleanKey(c.apiKey) };
+    if (!cfg?.baseUrl || !cfg.model || !cfg.apiKey) throw new Error("API provider isn't configured.");
+    return cfg;
   }
 
   /** Some providers reject response_format; once we see that, stop sending it. */
@@ -57,8 +118,9 @@ export class ByokClassifier implements Classifier {
 
   private async request(messages: ChatMessage[], maxTokens: number, signal: AbortSignal): Promise<Response> {
     const { baseUrl, model, apiKey } = this.cfg;
+    const url = `${baseUrl}/chat/completions`;
     try {
-      return await this.fetchFn(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      return await this.fetchFn(url, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -68,34 +130,38 @@ export class ByokClassifier implements Classifier {
           max_tokens: maxTokens,
           ...(this.noResponseFormat ? {} : { response_format: { type: "json_object" } }),
         }),
-        signal: AbortSignal.any([signal, AbortSignal.timeout(90_000)]),
+        signal: anySignal([signal, timeoutSignal(90_000)]),
       });
     } catch (err) {
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-      throw err instanceof DOMException && err.name === "TimeoutError"
-        ? new Error("Provider timed out")
-        : new Error("Provider unreachable");
+      throw describeFetchError(err, url);
     }
   }
 
-  private async chat(messages: ChatMessage[], maxTokens: number, signal: AbortSignal): Promise<unknown> {
-    let res = await this.request(messages, maxTokens, signal);
+  /** One tiny request to confirm URL, model and key work. */
+  async test(signal: AbortSignal): Promise<{ status: number; ms: number }> {
+    const started = performance.now();
+    const res = await this.send([{ role: "user", content: 'Reply with the JSON {"ok": true}.' }], 16, signal);
+    if (!res.ok) throw await failure(res);
+    return { status: res.status, ms: Math.round(performance.now() - started) };
+  }
+
+  private async send(messages: ChatMessage[], maxTokens: number, signal: AbortSignal): Promise<Response> {
+    const res = await this.request(messages, maxTokens, signal);
     // Provider doesn't accept response_format → retry once without it and remember.
     if (!res.ok && res.status !== 401 && res.status !== 403 && res.status !== 429 && res.status < 500 && !this.noResponseFormat) {
       this.noResponseFormat = true;
-      res = await this.request(messages, maxTokens, signal);
+      return this.request(messages, maxTokens, signal);
     }
-    if (!res.ok) {
-      const detail = (await res.text()).slice(0, 200);
-      if (res.status === 401 || res.status === 403) {
-        const err = new Error(`Provider rejected the API key (${res.status})${detail ? `: ${detail}` : ""}`);
-        err.name = "Fatal";
-        throw err;
-      }
-      if (res.status === 429 || res.status >= 500) throw new Error(`Provider error ${res.status}${detail ? `: ${detail}` : ""}`);
-      throw new Error(`Request failed (${res.status})${detail ? `: ${detail}` : ""}`);
-    }
-    const body = await res.json();
+    return res;
+  }
+
+  private async chat(messages: ChatMessage[], maxTokens: number, signal: AbortSignal): Promise<unknown> {
+    const res = await this.send(messages, maxTokens, signal);
+    if (!res.ok) throw await failure(res);
+    const body = await res.json().catch(() => {
+      throw new Error(`Provider returned a non-JSON response (${res.status}).`);
+    });
     const content = body?.choices?.[0]?.message?.content;
     if (typeof content !== "string") throw new Error("Empty response from provider.");
     return parseJson(content);

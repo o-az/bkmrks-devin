@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getMeta, setMeta } from "../lib/db";
 import { Lists } from "../lib/lists";
-import { BYOK_PRESETS } from "../lib/organize/byok";
+import { BYOK_PRESETS, ByokClassifier } from "../lib/organize/byok";
 import { runOrganize } from "../lib/organize/run";
 import { excerpt } from "../lib/organize/text";
 import type { OrganizeSettings, Progress, Proposal, ProposedList } from "../lib/organize/types";
@@ -48,6 +48,7 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
   const [modelName, setModelName] = useState(saved?.byok?.model ?? BYOK_PRESETS.openai.model);
   const [apiKey, setApiKey] = useState(saved?.byok?.apiKey ?? "");
   const [rememberKey, setRememberKey] = useState(!!saved?.byok?.apiKey);
+  const [probe, setProbe] = useState<{ kind: "running" } | { kind: "ok"; status: number; ms: number } | { kind: "error"; message: string } | null>(null);
   const [seeds, setSeeds] = useState((saved?.seeds ?? []).join("\n"));
   const [autoApply, setAutoApply] = useState(saved?.autoApply ?? false);
 
@@ -81,6 +82,18 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
     const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
     return () => clearInterval(timer);
   }, [step]);
+
+  useEffect(() => setProbe(null), [baseUrl, modelName, apiKey]);
+
+  const testProvider = async () => {
+    setProbe({ kind: "running" });
+    try {
+      const classifier = new ByokClassifier({ provider: "byok", seeds: [], autoApply: false, byok: { baseUrl, model: modelName, apiKey } });
+      setProbe({ kind: "ok", ...(await classifier.test(new AbortController().signal)) });
+    } catch (err) {
+      setProbe({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   const start = async () => {
     if (provider === "byok" && !apiKey) return setError("Enter an API key or choose Local.");
@@ -194,6 +207,22 @@ export function OrganizeDialog({ posts, lists, onClose }: OrganizeDialogProps) {
                   <input type="checkbox" checked={rememberKey} onChange={(e) => setRememberKey(e.target.checked)} />
                   Remember key on this device
                 </label>
+                <div className="probe">
+                  <button className="ghost" onClick={() => void testProvider()} disabled={probe?.kind === "running" || !baseUrl || !modelName || !apiKey}>
+                    {probe?.kind === "running" ? "Testing…" : "Test connection"}
+                  </button>
+                  <span className="muted small">Quick check: sends one tiny request (a few tokens) to confirm the URL, model and key work. Doesn't organize anything.</span>
+                </div>
+                {probe?.kind === "ok" && (
+                  <p className="probe-result ok" role="status">
+                    Connected — HTTP {probe.status} in {(probe.ms / 1000).toFixed(1)} s. You're good to start.
+                  </p>
+                )}
+                {probe?.kind === "error" && (
+                  <p className="probe-result error" role="alert">
+                    {probe.message}
+                  </p>
+                )}
                 <p className="muted small">Roughly $0.05 per 1,000 posts with gpt-4o-mini-class models.</p>
               </div>
             )}
