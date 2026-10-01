@@ -18,6 +18,8 @@ export interface ProposedList {
 export interface Proposal {
   lists: ProposedList[];
   unsorted: string[];
+  /** Posts left unsorted because the provider refused or failed them (API provider only). */
+  skipped?: { refused: string[]; failed: string[] };
 }
 
 export interface Progress {
