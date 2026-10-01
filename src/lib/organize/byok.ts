@@ -201,7 +201,10 @@ export class ByokClassifier implements Classifier {
       throw describeFetchError(err, url);
     }
     if (!res.ok) throw await failure(res);
-    return chatModels(await res.json().catch(() => null));
+    const data: unknown = await res.json().catch(() => {
+      throw new Error("The provider's model list isn't valid JSON");
+    });
+    return chatModels(data);
   }
 
   /** One tiny request to confirm URL, model and key work and the reply parses like a real run. */
@@ -284,8 +287,8 @@ export class ByokClassifier implements Classifier {
       try {
         return await this.discoverFrom(sample, seeds, onProgress, signal);
       } catch (err) {
-        if ((err as Error).name !== "Refused" || attempt >= 3) throw err;
-        size = Math.max(15, Math.floor(size / 2));
+        if ((err as Error).name !== "Refused" || attempt >= 4) throw err;
+        size = Math.max(1, Math.floor(Math.min(size, posts.length) / 2));
         onProgress({ phase: "discovering", done: 0, total: 1, note: "Provider refused some posts — retrying with a different sample…" });
       }
     }
@@ -336,7 +339,8 @@ export class ByokClassifier implements Classifier {
     let cursor = 0;
 
     // Refusals and timeouts are split in half until the offending posts are isolated.
-    const run = async (batch: Post[]): Promise<void> => {
+    // A timed-out batch is split once; repeated timeouts usually mean the provider is down.
+    const run = async (batch: Post[], timedOut = false): Promise<void> => {
       try {
         const parsed = (await this.chatRetry(
           [
@@ -359,10 +363,10 @@ export class ByokClassifier implements Classifier {
       } catch (err) {
         const name = (err as Error).name;
         if (name === "AbortError" || name === "Fatal") throw err;
-        if ((name === "Refused" || name === "Timeout") && batch.length > 1) {
+        if ((name === "Refused" || (name === "Timeout" && !timedOut)) && batch.length > 1) {
           const half = Math.ceil(batch.length / 2);
-          await run(batch.slice(0, half));
-          await run(batch.slice(half));
+          await run(batch.slice(0, half), timedOut || name === "Timeout");
+          await run(batch.slice(half), timedOut || name === "Timeout");
           return;
         }
         // Don't abort the run: these posts stay unsorted.
