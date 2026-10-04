@@ -53,7 +53,11 @@ export function Feed({ posts, sort, view, selectionKey, onOpen, lists = NO_LISTS
   const [margin, setMargin] = useState(0);
 
   useLayoutEffect(() => {
-    setMargin(ref.current ? ref.current.getBoundingClientRect().top + window.scrollY : 0);
+    const update = () => setMargin(ref.current ? ref.current.getBoundingClientRect().top + window.scrollY : 0);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(document.body);
+    return () => ro.disconnect();
   }, [view, width]);
 
   const virtualizer = useWindowVirtualizer({
